@@ -4,17 +4,9 @@
 #include <iostream>
 using namespace sf;
 
-Vector2f operator/(const Vector2f& a, const int& b) {
-	return { a.x / b, a.y / b };
-}
-
-void operator-=(Vector2f& a, const int& b) {
-	a.x -= b, a.y -= b;
-}
-
-const int windowWidth = 800, windowHeight = 800;
+int windowWidth = 800, windowHeight = 800;
 const Vector2f defaultViewSize(400, 400);
-Vector2f viewSize(defaultViewSize), viewPos(viewSize/2);
+
 int curTime = 0;
 bool pause = false;
 
@@ -50,9 +42,9 @@ public:
 		}
 	}
 	
-	void clicked(Vector2i pos, bool value) {
-		int x = pos.x / (tileSize * (windowWidth / viewSize.x));
-		int y = pos.y / (tileSize * (windowHeight / viewSize.y));
+	void clicked(Vector2f pos, bool value) {
+		int x = pos.x / tileSize;
+		int y = pos.y / tileSize;
 		if (x < 0 || x >= width || y < 0 || y >= height) return;
 		ValueBoard[y][x] = value;
 		imageBoardUpdate(y, x);
@@ -178,6 +170,7 @@ int CoolTimeMgr::UpdateCool = 200;
 int main() {
 	std::cout << "Mouse Left: 세포 생성" << '\n';
 	std::cout << "Mouse Right: 세포 삭제" << '\n';
+	std::cout << "Mouse Middle: 판 이동" << '\n';
 	std::cout << "Mouse Scroll: 확대/축소" << '\n';
 	std::cout << "Space: 일시 정지" << '\n';
 	std::cout << "BackSpace: 세포 판 초기화" << '\n';
@@ -186,36 +179,45 @@ int main() {
 
 	Vector2i beforeMousePos;
 	Clock *clock = new Clock();
-	View* view = new View(viewPos,viewSize);
+	View view({ defaultViewSize.x / 2 ,defaultViewSize.y / 2 }, defaultViewSize);
 	GameBoard* board = new GameBoard();
 	RenderWindow* window = new RenderWindow(VideoMode(windowWidth, windowHeight), "Game Of Life");
 	window->setFramerateLimit(144);
-	window->setView(*view);
-
+	window->setView(view);
+	Event e;
 	while (window->isOpen()) {
-		Event e;
 		while (window->pollEvent(e)) {
 			if (e.type == Event::Closed) window->close();
 
-			if (e.type == Event::MouseWheelScrolled  
-				&& viewSize.x - e.mouseWheelScroll.delta * 20 <= windowWidth
-				&& viewSize.x - e.mouseWheelScroll.delta * 20 >= 10) {
+			if (e.type == Event::MouseWheelScrolled) {
+				view.zoom((-e.mouseWheelScroll.delta + 10)/10);
+				window->setView(view);
+			}
 
-				viewSize -= e.mouseWheelScroll.delta * 20;
-				viewPos = viewSize / 2;
-				view->setCenter(viewPos);
-				view->setSize(viewSize);
-				window->setView(*view);
+			if(e.type == Event::Resized)
+			{
+				view.setSize(view.getSize().x + (int(e.size.width) - windowWidth) * (view.getSize().x / windowWidth),
+					view.getSize().y + (int(e.size.height) - windowHeight) * (view.getSize().y / windowHeight));
+				window->setView(view);
+				windowWidth = e.size.width;
+				windowHeight = e.size.height;
 			}
 		}
 		window->clear(Color(150,150,150));
 		curTime = clock->getElapsedTime().asMilliseconds();
 
 		if (Mouse::isButtonPressed(Mouse::Left)) { //마우스 왼쪽 클릭으로 세포 추가
-			board->clicked(Mouse::getPosition(*window),true);
+			board->clicked(window->mapPixelToCoords(Mouse::getPosition(*window)),true);
 		}
 		if (Mouse::isButtonPressed(Mouse::Right)) { //마우스 오른쪽 클릭으로 세포 삭제
-			board->clicked(Mouse::getPosition(*window),false);
+			board->clicked(window->mapPixelToCoords(Mouse::getPosition(*window)),false);
+		}
+		if (Mouse::isButtonPressed(Mouse::Middle)) { //마우스 가운데 클릭으로 
+			Vector2f temp(beforeMousePos - Mouse::getPosition(*window));
+			temp.x *= view.getSize().x / windowWidth;
+			temp.y *= view.getSize().y / windowHeight;
+			view.move(temp);
+			window->setView(view);
 		}
 		if (Keyboard::isKeyPressed(Keyboard::Space) && CoolTimeMgr::StopCoolDown()) { //메인 업데이트 로직 일시 정지
 			pause = !pause;
@@ -236,10 +238,9 @@ int main() {
 			std::cout << "로직 업데이트 딜레이 " << x << " Milliseconds로 설정됨\n\n";
 		}
 		if (Keyboard::isKeyPressed(Keyboard::R) && CoolTimeMgr::ResetCoolDown()) { //뷰 위치 기본값으로
-			viewSize = defaultViewSize, viewPos = viewSize/2;
-			view->setCenter(viewPos);
-			view->setSize(viewSize);
-			window->setView(*view);
+			view.setSize({ defaultViewSize.x * ((float)windowWidth / windowHeight), defaultViewSize.y });
+			view.setCenter(view.getSize().x /2, view.getSize().y / 2);
+			window->setView(view);
 		}
 		if (CoolTimeMgr::UpdateCoolDown()) { //메인 업데이트 로직
 			board->mainUpdate();
@@ -250,7 +251,8 @@ int main() {
 		window->display();
 	}
 
-	delete clock; delete view;
-	delete window; delete board;
+	delete clock;
+	delete window;
+	delete board;
 	return 0;
 }
